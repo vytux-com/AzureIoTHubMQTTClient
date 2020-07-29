@@ -61,15 +61,14 @@ void AzureIoTHubMQTTClient::sendEventWithKeyVal(KeyValueMap keyValMap) {
     }
 
     const int BUFFER_SIZE = JSON_OBJECT_SIZE(MAX_JSON_OBJECT_SIZE);
-    StaticJsonBuffer<BUFFER_SIZE> jsonBuffer;
-    auto& root = jsonBuffer.createObject();
+    StaticJsonDocument<BUFFER_SIZE> root;
 
     for (const auto &keyVal: keyValMap) {
         root[keyVal.first] = keyVal.second;
     }
 
     String jsonStr;
-    root.printTo(jsonStr);
+    serializeJson(root, jsonStr);
     DEBUGLOG("JSON: %s\n", jsonStr.c_str());
 
     sendEvent(jsonStr);
@@ -78,27 +77,30 @@ void AzureIoTHubMQTTClient::sendEventWithKeyVal(KeyValueMap keyValMap) {
 void AzureIoTHubMQTTClient::_onActualMqttMessageCallback(const MQTT::Publish &msg) {
     //Process message
     if (msg.payload_len() > 0 && parseMessageAsJson_ && commandsHandlerMap_.size() > 0) {
-        StaticJsonBuffer<200> jsonBuffer;
-        JsonObject& json = jsonBuffer.parseObject((char*)msg.payload(), 3);
-
-        if (json.success()) {
+        StaticJsonDocument<200> jsonDoc;
+        auto error = deserializeJson(jsonDoc, (char*)msg.payload(), 3);
+        if (error) {
+            Serial.print(F("deserializeJson() failed with code "));
+            Serial.println(error.c_str());
+            return;
+        } else {
             String key = "";
 
-            if (json.containsKey("Name"))
+            if (jsonDoc.containsKey("Name"))
                 key = "Name";
-            else if (json.containsKey("name"))
+            else if (jsonDoc.containsKey("name"))
                 key = "name";
 
             if (!key.equals("")) {
-                String cmdName = String(json[key].as<char*>());
+                String cmdName = String(jsonDoc[key].as<char*>());
 
                 for (const auto &myPair : commandsHandlerMap_) {
                     if (!cmdName.equals(myPair.first))
                         continue;
 
                     DEBUGLOG("Found %s command\n", cmdName.c_str());
-                    AzureIoTHubMQTTClientCommandCallback cb = myPair.second;
-                    cb(myPair.first, json);
+//                    AzureIoTHubMQTTClientCommandCallback cb = myPair.second;
+//                    cb(myPair.first, jsonDoc);
                 }
             }
         }
